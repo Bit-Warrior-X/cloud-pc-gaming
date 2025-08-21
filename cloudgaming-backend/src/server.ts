@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import authRoutes from "./routes/auth";
+import { gamesRoutes } from "./routes/games";
 import { migrate, pool } from "./db";
 
 const app = express();
@@ -12,6 +13,7 @@ app.use(express.json());
 
 app.get("/health", (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 app.use("/auth", authRoutes);
+app.use("/games", gamesRoutes);
 
 const PORT = Number(process.env.PORT || 3001);
 

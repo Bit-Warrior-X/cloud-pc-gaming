@@ -1,11 +1,11 @@
-import React, { useState } from "react";
-
+import React, { useState, useEffect } from "react";
 // ------------------------------------------------------------
 // Cloud-PC Frontend – Login + Register (React + TypeScript)
 // Single-file App.tsx you can drop into a Vite React TS project.
 // Expects backend endpoints:
 //   POST /auth/login    { email, password } -> { token: string }
 //   POST /auth/register { email, password } -> { token?: string }
+//   GET  /games -> Game[] (requires auth)
 // If /auth/register does not return a token, the client will attempt
 // an immediate login with the same credentials.
 // Configure API base via Vite env: VITE_API_BASE=https://api.example.com
@@ -13,6 +13,7 @@ import React, { useState } from "react";
 
 interface LoginResponse { token: string }
 interface RegisterResponse { token?: string; id?: string; message?: string }
+interface Game { id: string; title: string; status: "READY" | "PREPARE" }
 
 type Mode = "login" | "register";
 
@@ -22,7 +23,7 @@ async function apiLogin(email: string, password: string): Promise<LoginResponse>
   const res = await fetch(`${API_BASE}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    //credentials: "include",
+    credentials: "include",
     body: JSON.stringify({ email, password }),
   });
   if (!res.ok) {
@@ -36,12 +37,28 @@ async function apiRegister(email: string, password: string): Promise<RegisterRes
   const res = await fetch(`${API_BASE}/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    //credentials: "include",
+    credentials: "include",
     body: JSON.stringify({ email, password }),
   });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Register failed: ${res.status} ${text}`);
+  }
+  return res.json();
+}
+
+async function apiGetGames(token: string): Promise<Game[]> {
+  const res = await fetch(`${API_BASE}/games`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Games fetch failed: ${res.status} ${text}`);
   }
   return res.json();
 }
@@ -113,13 +130,7 @@ export default function App() {
 
   if (token) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f8fafc" }}>
-        <div style={{ width: 380, background: "white", border: "1px solid #e5e7eb", borderRadius: 12, padding: 24, boxShadow: "0 4px 20px rgba(0,0,0,0.06)" }}>
-          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>Signed in</h1>
-          <p style={{ color: "#64748b", fontSize: 14, marginTop: 8 }}>Your JWT (truncated): <code>{token.slice(0, 12)}…</code></p>
-          <button onClick={logout} style={{ marginTop: 16, width: "100%", padding: "10px 14px", borderRadius: 8, border: "1px solid #111827", background: "#111827", color: "white", fontWeight: 600, cursor: "pointer" }}>Logout</button>
-        </div>
-      </div>
+      <Dashboard token={token} onLogout={logout} />
     );
   }
 
@@ -241,3 +252,77 @@ export default function App() {
     </div>
   );
 }
+
+
+
+
+// --------------------------- UI: Dashboard ----------------------------
+function Dashboard({ token, onLogout }: { token: string; onLogout: () => void }) {
+  const [games, setGames] = useState<Game[] | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiGetGames(token);
+      setGames(data);
+    } catch (e: any) {
+      setError(e.message || "Failed to load games");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // fetch games on first mount after login
+    void load();
+  }, []);
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#f8fafc", display: "flex", flexDirection: "column" }}>
+      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: 16, borderBottom: "1px solid #e5e7eb", background: "white" }}>
+        <div style={{ fontWeight: 700 }}>Cloud-PC</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={load} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #cbd5e1", background: "white", cursor: "pointer" }}>Refresh</button>
+          <button onClick={onLogout} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #111827", background: "#111827", color: "white", cursor: "pointer" }}>Logout</button>
+        </div>
+      </header>
+
+      <main style={{ maxWidth: 960, width: "100%", margin: "0 auto", padding: 16, flex: 1 }}>
+        <h2 style={{ marginTop: 0 }}>Games</h2>
+        <p style={{ color: "#64748b", marginTop: 4 }}>Fetched after login from <code>{API_BASE || "/"}/games</code></p>
+
+        {loading && (
+          <div style={{ marginTop: 16, color: "#475569" }}>Loading games…</div>
+        )}
+        {error && (
+          <div role="alert" style={{ marginTop: 16, color: "#b91c1c" }}>{error}</div>
+        )}
+
+        {games && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12, marginTop: 16 }}>
+            {games.map((g) => (
+              <div key={g.id} style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: 12, padding: 14, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ fontWeight: 600 }}>{g.title}</div>
+                  <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 999, background: g.status === "READY" ? "#dcfce7" : "#fef9c3", color: g.status === "READY" ? "#166534" : "#854d0e" }}>
+                    {g.status}
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: "#64748b", marginTop: 8 }}>ID: <code>{g.id}</code></div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!loading && !error && (!games || games.length === 0) && (
+          <div style={{ marginTop: 16, color: "#475569" }}>No games yet.</div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+
